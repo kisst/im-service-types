@@ -1,0 +1,53 @@
+name: Build Internet-Draft
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ruby ruby-dev build-essential python3-pip
+          sudo gem install kramdown-rfc
+          pip install --break-system-packages xml2rfc
+
+      - name: Build XML
+        run: |
+          kramdown-rfc2629 README.md > draft-raw.xml
+          xml2rfc --v3 --prep draft-raw.xml -o draft-kisst-calext-im-service-type.xml
+          xml2rfc --v3 draft-raw.xml --text -o draft-kisst-calext-im-service-type.txt
+
+      - name: Determine version
+        id: version
+        run: |
+          PATCH=$(git rev-list --count HEAD)
+          SHORT=$(git rev-parse --short HEAD)
+          VERSION="0.1.${PATCH}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHORT}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          gh release delete "${TAG}" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "${TAG}" \
+            --target "${{ github.sha }}" \
+            --title "Draft v${{ steps.version.outputs.version }}" \
+            --notes "Auto-built from commit ${{ steps.version.outputs.sha }}" \
+            --latest \
+            draft-kisst-calext-im-service-type.xml \
+            draft-kisst-calext-im-service-type.txt
